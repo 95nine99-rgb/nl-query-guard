@@ -1,0 +1,18 @@
+# 2026-08-21
+
+## 오늘 한 것
+- gradlew 실행권한 + quarantine 제거 → 빌드 통과
+- MySQL init 스크립트 GRANT 순서 오류 수정 (계정 생성 / 권한 부여 분리)
+- contextLoads 통과. Boot 4.1.0 스타터 좌표 정상 확인
+
+## 막힌 것 / 해결 여부
+- permission denied: chmod만으로 안 됨. com.apple.quarantine이 원인 → xattr -cr 로 해결
+- MySQL Exited(1): 없는 테이블에 GRANT (ERROR 1146) → 권한 부여를 8/24으로 분리
+- dialect 에러: MySQL healthy 전에 빌드 → docker compose up -d --wait 로 해결
+
+## 내일 할 것
+- git init + GitHub push + branch protection
+- MCP 2개 (Context7, GitHub)
+
+## 소요 시간
+- 약 15분

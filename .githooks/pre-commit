@@ -1,0 +1,52 @@
+#!/bin/sh
+# 커밋 직전 비밀 정보 차단.
+# 활성화:  git config core.hooksPath .githooks
+#
+# 이 프로젝트의 주제가 "사람이 아니라 시스템이 막는다" 이므로
+# 비밀 유출도 눈으로 확인하지 않고 여기서 막는다.
+
+FAIL=0
+
+# 스테이징된 파일만 검사 (삭제된 파일 제외)
+FILES=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$FILES" ] && exit 0
+
+block() {
+  echo "커밋 차단: $1"
+  echo "   $2"
+  FAIL=1
+}
+
+for f in $FILES; do
+  [ -f "$f" ] || continue
+
+  case "$f" in
+    *.env|*.env.*|*.pem|*.key|*.p12|*.jks|*.keystore)
+      block "$f" "비밀 파일 확장자" ;;
+  esac
+
+  # 실제 키 형태만 잡는다. 로컬 더미 비번(apppw/rootpw/ropw)은 통과시킨다.
+  if grep -qE 'sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9-]{20,}' "$f" 2>/dev/null; then
+    block "$f" "LLM API 키로 보이는 문자열"
+  fi
+  if grep -qE 'gh[pousr]_[A-Za-z0-9]{30,}' "$f" 2>/dev/null; then
+    block "$f" "GitHub 토큰"
+  fi
+  if grep -qE 'AKIA[0-9A-Z]{16}' "$f" 2>/dev/null; then
+    block "$f" "AWS 액세스 키 ID"
+  fi
+  if grep -qE 'BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY' "$f" 2>/dev/null; then
+    block "$f" "개인키"
+  fi
+  if grep -qiE '(api[_-]?key|secret|token)\s*[:=]\s*["'"'"']?[A-Za-z0-9_\-]{24,}' "$f" 2>/dev/null; then
+    block "$f" "긴 시크릿 값이 하드코딩된 것으로 보임"
+  fi
+done
+
+if [ "$FAIL" = "1" ]; then
+  echo ""
+  echo "비밀 정보를 .env 로 옮기고 코드에서는 환경변수로 읽어라."
+  echo "오탐이면:  git commit --no-verify"
+  exit 1
+fi
+exit 0
