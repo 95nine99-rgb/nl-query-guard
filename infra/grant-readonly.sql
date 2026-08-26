@@ -10,7 +10,7 @@
 --    반드시 테이블을 하나씩 명시한다.
 
 GRANT SELECT ON nlquery.transactions TO 'query_ro'@'%';
-GRANT SELECT ON nlquery.category     TO 'query_ro'@'%';
+GRANT SELECT ON nlquery.categories     TO 'query_ro'@'%';
 -- users 는 일부러 주지 않는다.
 
 FLUSH PRIVILEGES;

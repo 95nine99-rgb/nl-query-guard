@@ -6,7 +6,7 @@
 ```mermaid
 erDiagram
   USERS ||--o{ TRANSACTIONS : "보유"
-  CATEGORY ||--o{ TRANSACTIONS : "분류"
+  CATEGORIES ||--o{ TRANSACTIONS : "분류"
   USERS ||--o{ NL_QUERY_LOG : "질의"
   PROMPT_VERSION ||--o{ NL_QUERY_LOG : "사용된 프롬프트"
   GUARD_RULE ||--o{ NL_QUERY_LOG : "검증 근거"
@@ -17,7 +17,7 @@ erDiagram
     bigint id PK
     varchar email
   }
-  CATEGORY {
+  CATEGORIES {
     bigint id PK
     varchar name "카페 식비 교통 등"
   }
