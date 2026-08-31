@@ -87,3 +87,7 @@ erDiagram
 |---|---|---|
 | `idx_tx_user_cat_time (user_id, category_id, transaction_at)` | 카테고리별 기간 합계 | 등가조건 → 등가조건 → 범위·정렬 순서 |
 | `idx_log_created (created_at)` | 질의 로그 조회 | 미확인 — 데이터 늘려보고 판단 |
+
+> **측정 완료 (2026-08-31)** — `idx_tx_user_cat_time` 의 컬럼 순서가 `ORDER BY transaction_at DESC` 를
+> `(reverse)` 인덱스 스캔으로 해결해 `Sort` 단계를 제거했다. 읽는 행이 995 → 20 으로 줄었다.
+> 다만 **옵티마이저가 이 인덱스를 자동 선택하지 않았다.** 원인과 실측값은 `docs/05-result.md` 1~4절.

@@ -63,3 +63,8 @@ credentials.*
 Thumbs.db
 *.log
 *.pid
+
+### 실험용 백업 (커밋 금지) ###
+backup.sql
+backup*.sql
+*.dump
