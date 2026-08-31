@@ -17,7 +17,6 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
 
-
     @Transactional(readOnly = true)
     public List<TransactionResponse> search(Long userId, TransactionSearchRequest request, Pageable pageable) {
         LocalDateTime from = request.from().atStartOfDay();

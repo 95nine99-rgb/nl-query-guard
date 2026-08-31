@@ -8,7 +8,7 @@ public record TransactionResponse(
         Long id,
         String title,
         int amount,
-        LocalDateTime transactionAt,
+        LocalDateTime transactionAt,    
         String categoryName
 ) {
     public static TransactionResponse from(Transaction tx) {
