@@ -79,5 +79,11 @@ class UserIdEnforcerTest {
         assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
                 .isInstanceOf(SqlGuardException.class);
     }
+    @Test
+    void 서브쿼리로_user_id_우회() {
+        String given = "SELECT * FROM transactions WHERE user_id IN (SELECT 2)";
 
+        assertThatThrownBy(() -> new JsqlUserIdEnforcer().enforce(given, 1L))
+                .isInstanceOf(SqlGuardException.class);
+    }
 }
