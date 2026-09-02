@@ -11,6 +11,7 @@
 DOCKER=/Applications/Docker.app/Contents/Resources/bin/docker
 URL=http://localhost:8080/api/debug/raw-sql
 ACCOUNT="${1:-app}"
+GUARDED="${2:-false}"
 BACKUP=backup.sql
 
 restore() {
@@ -25,7 +26,7 @@ check_rows() {
 run() {
   local num="$1" name="$2" sql="$3"
   local body res ok code rows
-  body=$(jq -cn --arg s "$sql" --arg a "$ACCOUNT" '{sql:$s, account:$a}')
+  body=$(jq -cn --arg s "$sql" --arg a "$ACCOUNT" --argjson g "$GUARDED" '{sql:$s, account:$a, guarded:$g}')
   res=$(curl -s -X POST "$URL" -H 'Content-Type: application/json' -d "$body")
   ok=$(echo "$res"   | jq -r '.success')
   code=$(echo "$res" | jq -r '.errorCode // "-"')
@@ -38,7 +39,7 @@ run() {
 }
 
 echo "=============================================="
-echo " 계정: $ACCOUNT"
+echo " 계정: $ACCOUNT   /   guarded: $GUARDED"
 echo "=============================================="
 
 if [ ! -f "$BACKUP" ]; then echo "❌ $BACKUP 없음. 먼저 백업하세요."; exit 1; fi
@@ -58,9 +59,10 @@ run 10 "SLEEP(10)"      "SELECT SLEEP(10)"
 
 echo
 echo "--- B. 정상 질의 3종 (막히면 안 됨) ---"
-run N1 "합계"           "SELECT SUM(amount) FROM transactions WHERE user_id=1 AND category_id=1"
-run N2 "비싼거래 5건"     "SELECT * FROM transactions WHERE user_id=1 ORDER BY amount DESC LIMIT 5"
-run N3 "카테고리별 합계"   "SELECT category_id, SUM(amount) FROM transactions WHERE user_id=1 GROUP BY category_id"
+echo "    ※ LLM 은 user_id 를 쓰지 않는다는 계약. 서버가 주입한다 (판단 ⑧)"
+run N1 "합계"           "SELECT SUM(amount) FROM transactions WHERE category_id=1"
+run N2 "비싼거래 5건"     "SELECT * FROM transactions ORDER BY amount DESC LIMIT 5"
+run N3 "카테고리별 합계"   "SELECT category_id, SUM(amount) FROM transactions GROUP BY category_id"
 
 echo
 echo "--- C. 파괴형 공격 (매번 복구) ---"

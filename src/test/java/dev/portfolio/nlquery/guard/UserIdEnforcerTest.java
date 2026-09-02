@@ -25,35 +25,25 @@ class UserIdEnforcerTest {
     @DisplayName("A. WHERE 에 다른 user_id 가 명시된 경우")
     void case_A_다른_user_id() {
         String sql = "SELECT * FROM transactions WHERE user_id = 2";
-
-        String result = enforcer.enforce(sql, LOGIN_USER_ID);
-        String normalized = result.replaceAll("\\s+", "");
-        assertThat(normalized).contains("user_id=1");
-        assertThat(normalized).doesNotContain("user_id=2");
-
+        assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
+                .isInstanceOf(SqlGuardException.class);
     }
 
     @Test
     @DisplayName("B. WHERE 절이 아예 없는 경우")
     void case_B_WHERE_없음() {
         String sql = "SeLeCt  *  FrOm    transactions";
-
-
-        assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
-                .isInstanceOf(SqlGuardException.class)
-                .hasMessage("WHERE절이 없습니다");
+        String actual = enforcer.enforce(sql, LOGIN_USER_ID);
+        assertThat(actual.replaceAll("\\s+", "")).contains("user_id=1");
     }
 
     @Test
     @DisplayName("C. 주석으로 뒤가 잘린 경우 — 정규식은 여기서 실패할 것")
     void case_C_주석_우회() {
-        String given = "SELECT * FROM transactions WHERE user_id=1 -- AND category_id=1";
+        String sql = "SELECT * FROM transactions WHERE user_id=1 -- AND category_id=1";
+        assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
+                .isInstanceOf(SqlGuardException.class);
 
-        String actual = enforcer.enforce(given, 3L);
-        String normalized = actual.replaceAll("\\s+", "");
-        assertThat(normalized).contains("user_id=3");
-        assertThat(normalized).doesNotContain("--");
-        System.out.println("C 결과: " + actual);
     }
 
     @Test
@@ -63,15 +53,12 @@ class UserIdEnforcerTest {
         String actual = enforcer.enforce(given, LOGIN_USER_ID);
         String normalized = actual.replaceAll("\\s+", "");
         assertThat(normalized).contains("user_id=1");
-
-        System.out.println("C 결과: " + actual);
     }
 
     @Test
     @DisplayName("E. 문자열 안에 -- 가 들어간 경우")
     void case_E_문자열_리터럴() {
         String given = "SELECT * FROM transactions WHERE title = '스타벅스--강남점'";
-
         String actual = enforcer.enforce(given, 1L);
         String normalized = actual.replaceAll("\\s+", "");
         assertThat(normalized).contains("스타벅스--강남점");
@@ -80,21 +67,17 @@ class UserIdEnforcerTest {
     @Test
     @DisplayName("F. 블록 주석")
     void case_F_블록주석() {
-        String given = "SELECT * FROM transactions WHERE /* 무시 */ user_id=2";
-
-        String actual = enforcer.enforce(given, 1L);
-        String normalized = actual.replaceAll("\\s+", "");
-        assertThat(normalized).doesNotContain("user_id=2");
+        String sql = "SELECT * FROM transactions WHERE /* 무시 */ user_id=2";
+        assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
+                .isInstanceOf(SqlGuardException.class);
     }
 
     @Test
     @DisplayName("G. WHERE 가 소문자")
     void case_G_소문자() {
-        String given = "SELECT * FROM transactions where user_id = 2";
-
-        String actual = enforcer.enforce(given, 1L);
-        String normalized = actual.replaceAll("\\s+", "");
-        assertThat(normalized).contains("user_id=1");
+        String sql = "SELECT * FROM transactions where user_id = 2";
+        assertThatThrownBy(() -> enforcer.enforce(sql, LOGIN_USER_ID))
+                .isInstanceOf(SqlGuardException.class);
     }
 
 }

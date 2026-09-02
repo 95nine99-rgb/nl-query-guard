@@ -8,12 +8,63 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # 판단 ④ (2026-09-02 결정) — CI 에 MySQL 서비스 컨테이너를 띄운다.
+    #
+    # 왜 이 방식인가
+    #   contextLoads() 가 Spring 을 통째로 띄우므로 DB 가 필요하다.
+    #   H2 는 MySQL 이 아니라 문법 차이로 못 잡는 버그가 생긴다.
+    #   Testcontainers 가 더 낫지만(로컬·CI 동일 동작) 학습 비용이 있어 P2 로 미뤘다.
+    #   근거는 docs/06-retro.md 참조.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpw
+          MYSQL_DATABASE: nlquery
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: gradle
+
+      # ddl-auto=validate 이므로 스키마가 먼저 있어야 한다 (ADR-003)
+      - name: 스키마 적용
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -prootpw nlquery < infra/schema.sql
+
+      # 로컬 docker-compose 와 동일한 계정 구성을 만든다
+      - name: 계정 생성 (app / query_ro)
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -prootpw <<'SQL'
+          CREATE USER IF NOT EXISTS 'app'@'%' IDENTIFIED BY 'apppw';
+          GRANT ALL PRIVILEGES ON nlquery.* TO 'app'@'%';
+          CREATE USER IF NOT EXISTS 'query_ro'@'%' IDENTIFIED BY 'ropw';
+          FLUSH PRIVILEGES;
+          SQL
+          mysql -h 127.0.0.1 -P 3306 -uroot -prootpw nlquery < infra/grant-readonly.sql
+
+      # 방어층 4b 가 CI 에서도 유지되는지 확인한다.
+      # query_ro 가 users 를 읽을 수 있으면 빌드를 실패시킨다.
+      - name: 읽기전용 계정 권한 검증
+        run: |
+          if mysql -h 127.0.0.1 -P 3306 -uquery_ro -propw nlquery \
+               -e "SELECT 1 FROM users LIMIT 1;" 2>/dev/null; then
+            echo "❌ query_ro 가 users 를 읽을 수 있다. 방어층 4b 가 깨졌다."
+            exit 1
+          fi
+          echo "✅ query_ro 는 users 에 접근할 수 없다"
+
       - name: build & test
         run: ./gradlew build --no-daemon
