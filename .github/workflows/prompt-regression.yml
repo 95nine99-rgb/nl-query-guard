@@ -1,16 +1,30 @@
-# 8/30(일) 등록 예정 — 프롬프트 회귀 테스트
+# 프롬프트 회귀 테스트
 #
-# 목적: 프롬프트나 모델을 바꿨을 때 의도 분류 정확도가 떨어지면 머지를 막는다.
+# 목적: 프롬프트나 모델을 바꿨을 때 정확도가 떨어지면 머지를 막는다.
 # 게이트 질문 ④ "프롬프트를 바꿔 정확도가 떨어졌을 때, 그걸 사람이 아니라 무엇이 잡아주나?"
 # 의 답이 이 파일이다.
+#
+# ⚠️ 2026-09-02 현재 수동 실행만 가능하도록 꺼둔다.
+#
+#    PromptRegressionTest 와 정답셋이 아직 없어서 무조건 실패한다.
+#    ADR-004 에 적었듯 **빨간 CI 는 아무것도 막지 못한다.** 매번 실패하면 아무도 보지 않는다.
+#    구현 전까지 켜두면 같은 실수를 반복하는 셈이다.
+#
+#    9/07 에 아래 두 가지를 만든 뒤 pull_request 트리거로 되돌린다.
+#      1. src/test/.../PromptRegressionTest.java
+#      2. 정답셋 20건 (질의 → 기대 SQL 성질)
+#
+#    되돌릴 내용:
+#      on:
+#        pull_request:
+#          paths:
+#            - 'prompts/**'
+#            - 'src/main/java/**/llm/**'
 
 name: prompt-regression
 
 on:
-  pull_request:
-    paths:
-      - 'prompts/**'
-      - 'src/main/java/**/llm/**'
+  workflow_dispatch:
 
 jobs:
   regression:
@@ -26,7 +40,7 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: run eval on 30 cases
+      - name: run eval
         run: ./gradlew test --tests '*PromptRegressionTest*' --no-daemon
 
       - name: comment result

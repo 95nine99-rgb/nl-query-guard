@@ -145,3 +145,79 @@ DR/**/OP TABLE transactions
 
 → 라이브러리를 처음 쓸 때는 **클래스 = SQL 의 무엇** 대응표를 먼저 준다.
    용어 정의가 아니라 그림과 비유부터. (`AGENTS.md` 에 규칙 등록)
+
+### 7. AST 재귀로 user_id 를 찾으려다 구멍을 냈다 (2026-09-02)
+
+**AI 제안**: `Expression` 타입을 재귀로 순회해 `user_id` 컬럼을 찾는다.
+
+```java
+if (expr instanceof Column c)           return "user_id".equalsIgnoreCase(...);
+if (expr instanceof BinaryExpression b) return 좌 || 우;
+return false;
+```
+
+교과서적으로 보였다. AST 를 다루면 타입별 순회가 정석이니까.
+
+**실제**: **LLM 이 자연스럽게 만든 SQL 이 구멍을 드러냈다.**
+
+```sql
+SELECT * FROM transactions
+WHERE amount > 30000 AND category_id IN (SELECT id FROM categories WHERE name = '쇼핑')
+```
+
+`InExpression` 은 `BinaryExpression` 이 아니라 마지막 `return false` 로 빠진다.
+확인해보니 `WHERE user_id IN (SELECT 2)` 가 그대로 통과했다.
+`Between` · `NotExpression` · `Parenthesis` 도 같은 이유로 빠진다.
+
+**교훈 2개**
+
+**① 타입을 나열하는 것은 블랙리스트다.**
+정규식에서 변형을 하나씩 막다가 실패한 것과 같은 구조다.
+이 프로젝트가 채택한 "막을 것을 나열하지 말고 허용할 것을 지정한다" 원칙과도 반대다.
+`Expression` 하위 타입은 수십 개라 애초에 나열이 불가능했다.
+
+**② 인위적 공격 목록보다 실제 사용이 넓었다.**
+8/31 에 직접 짠 악의적 SQL 12종에는 `IN` · `BETWEEN` 이 없었다.
+책상에서 만든 목록의 한계다. **LLM 을 붙여보고서야 드러났다.**
+
+→ 파싱이 끝난 표현식을 문자열로 검사하도록 바꿨다.
+   주석·공백·대소문자는 파서가 이미 정규화했으므로 안전하고, 어느 타입에 숨어도 놓치지 않는다.
+   문자열 리터럴 오탐이라는 한계는 코드 주석과 `06-retro.md` 에 남겼다.
+
+### 8. 프롬프트 예시에 있는 질의로 성능을 측정할 뻔했다 (2026-09-02)
+
+**AI 제안**: 프롬프트 파일을 읽어 `{{QUERY}}` 에 "가장 비싼 거래 5건" 을 넣고 결과를 확인한다.
+
+**실제**: 출력이 프롬프트 예시와 **글자 하나 다르지 않았다.**
+
+```
+프롬프트 예시: 질의: 가장 비싼 거래 5건
+              SQL: SELECT title, amount, transaction_at FROM transactions ORDER BY amount DESC LIMIT 5
+실제 출력:          SELECT title, amount, transaction_at FROM transactions ORDER BY amount DESC LIMIT 5
+```
+
+**모델이 생성한 것이 아니라 예시를 베낀 것이다.** 이대로 "3B 모델로 충분하다" 고 결론 낼 뻔했다.
+
+예시에 없는 질의("3만원 넘게 쓴 거래 중에 쇼핑 카테고리만")로 다시 물었더니
+서브쿼리를 쓰고 `SQL:` 접두사를 붙이는 등 실제 동작이 드러났다.
+
+**교훈**: few-shot 프롬프트를 평가할 때 **예시에 포함된 질의로 재면 안 된다.**
+
+### 9. 프롬프트 설계 실수로 접두사가 붙었다 (2026-09-02)
+
+프롬프트 마지막 줄을 `SQL:` 로 끝냈더니 모델이 출력에도 `SQL: ` 을 붙였다.
+
+```
+SQL: SELECT * FROM transactions WHERE amount > 30000 ...
+^^^^^ 이대로 JSQLParser 에 넣으면 파싱 실패
+```
+
+규칙 5에 "SQL 만 출력한다" 고 적어뒀는데도 형식을 따라했다.
+**프롬프트의 지시문보다 형식이 더 강하게 작용한다.**
+
+### 10. 첫 호출부터 규칙을 어겼다 (2026-09-02)
+
+프롬프트 규칙 4: "세미콜론을 쓰지 않는다"
+첫 테스트 출력: `... ORDER BY amount DESC LIMIT 5;`
+
+**프롬프트는 계약이지 보장이 아니다.** Enforcer 가 필요한 이유가 1회차에 실물로 나왔다.

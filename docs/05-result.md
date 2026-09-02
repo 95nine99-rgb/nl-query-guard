@@ -401,3 +401,116 @@ A 는 처음에 통과했는데, 검사 문자열이 `doesNotContain("user_id = 
 
 정규식 버전은 **처리할 수 없어서** 거부했다. 능력의 한계지 정책이 아니었다.
 파서 버전은 처리할 수 있다. **그럼 거부할 이유가 있는가.**
+
+---
+
+## 9. 실행 경로 재측정 — v0.1 vs v0.2 (2026-09-02)
+
+8절은 **문자열 비교**였다. 여기서는 **실제 MySQL 에서 실행**해 결과 행으로 확인한다.
+
+**방법**: `RawSqlDebugController` 에 `guarded` 플래그를 추가해 같은 엔드포인트로 둘 다 측정한다.
+
+```bash
+./scripts/run-attacks.sh query_ro false   # v0.1
+./scripts/run-attacks.sh query_ro true    # v0.2
+```
+
+**환경**: MySQL 8.0.46 (Docker) / transactions 5,000건 / `query_ro` 계정 / 로그인 유저 = 1 (상수)
+
+### 9-1. 결과
+
+| # | 유형 | v0.1 | v0.2 | 막은 층 |
+|---|---|---|---|---|
+| 1 | DROP | 차단 | 차단 `GUARD_BLOCKED` | **1** (SELECT 아님) |
+| 2 | DELETE | 차단 | 차단 `GUARD_BLOCKED` | **1** |
+| 3 | UPDATE | 차단 | 차단 `GUARD_BLOCKED` | **1** |
+| 4 | 다중 구문 | 차단 | 차단 `GUARD_BLOCKED` | **1** |
+| 5 | 주석 우회 | **통과 200건** | 차단 `GUARD_BLOCKED` | **3** (user_id 사용) |
+| 6 | UNION 인젝션 | 차단 | 차단 `SQL_ERROR` | 파싱/캐스팅 |
+| 7 | 다른 user_id | **통과 200건** | 차단 `GUARD_BLOCKED` | **3** |
+| 8 | 시스템 테이블 | **통과 89건** | 차단 `SQL_ERROR` | 부수 효과 (아래) |
+| 9 | 서브쿼리 | 차단 | 차단 `DB_PERMISSION_DENIED` | **4b** |
+| 10 | SLEEP(10) | 차단 | 차단 `SQL_ERROR` | 주입 후 문법 오류 |
+| 11 | 대소문자 우회 | **통과 200건 (전체)** | 통과 **but user_id=1 로 한정** | **3 (주입)** |
+| 12 | 주석 분할 | 차단 | 차단 `GUARD_BLOCKED` | 파싱 실패 |
+| | **차단** | **8 / 12** | **11 / 12** | |
+
+**오탐 (정상 질의 3종)**
+
+| # | 질의 | v0.2 |
+|---|---|---|
+| N1 | `SELECT SUM(amount) ... WHERE category_id=1` | ✅ 통과 |
+| N2 | `SELECT * ... ORDER BY amount DESC LIMIT 5` | ✅ 통과 |
+| N3 | `SELECT category_id, SUM(amount) ... GROUP BY category_id` | ✅ 통과 |
+
+**오탐 0 / 3.**
+
+### 9-2. 11번은 "뚫린" 것이 아니다
+
+`SeLeCt * FrOm transactions` 는 `user_id` 조건이 없으므로 **거부가 아니라 주입**된다.
+결과가 200건으로 나오는 것은 `maxRows=200` 상한 때문이다. **행 수로는 주입 여부를 알 수 없다.**
+
+직접 확인했다.
+
+```bash
+curl -X POST localhost:8080/api/debug/raw-sql \
+  -d '{"sql":"SELECT COUNT(*) FROM transactions","account":"query_ro","guarded":true}'
+→ {"rowCount":1,"rows":[{"COUNT(*)":1632}]}
+```
+
+**전체 5,000건 중 `user_id=1` 인 1,632건만 반환됐다.** 주입이 작동한다.
+
+> **측정 방법의 한계**: `maxRows` 상한이 걸린 상태에서는 행 수만으로 방어 여부를 판정할 수 없다.
+> 상한보다 작은 결과를 만드는 별도 질의(`COUNT(*)`)로 교차 확인해야 한다.
+
+### 9-3. 차단 사유가 여러 층에 분산됐다
+
+| 사유 | 건수 | 층 |
+|---|---|---|
+| `GUARD_BLOCKED` | 6 | 1 (SELECT only) · 3 (user_id) |
+| `SQL_ERROR` | 3 | 파싱 실패 · 주입 후 문법 오류 |
+| `DB_PERMISSION_DENIED` | 1 | 4b (MySQL GRANT) |
+
+**한 층에만 의존하지 않는다는 것이 숫자로 확인된다.**
+파서를 뚫어도 4b 가 남고, 4b 를 우회해도 1·3 이 남는다.
+
+### 9-4. 의도하지 않은 방어 — 8번
+
+`information_schema.tables` 조회에 `user_id = 1` 을 주입하자
+**해당 테이블에 `user_id` 컬럼이 없어서** SQL 이 실패했다.
+
+```
+Unknown column 'user_id' in 'where clause'
+```
+
+**의도한 차단이 아니다.** 결과적으로 막혔을 뿐이다.
+
+관찰된 성질: **`user_id` 컬럼이 없는 테이블은 주입 자체가 실패한다.**
+허용 테이블(`transactions`)만 접근 가능해지는 부수 효과가 생긴다.
+
+> ⚠️ 이것을 설계된 방어로 기록하면 안 된다. `user_id` 컬럼을 가진 다른 테이블이 생기면 이 성질은 사라진다.
+> 테이블 화이트리스트(방어층 2)는 여전히 별도로 필요하다. `docs/06-retro.md` 남은 과제 참조.
+
+### 9-5. 측정 설계 오류를 하나 더 잡았다
+
+처음 v0.2 를 돌렸을 때 **정상 질의 N1~N3 가 전부 차단됐다.** 오탐 3/3 으로 보였다.
+
+원인은 방어가 아니라 **측정 질의가 낡았기 때문**이다.
+
+```sql
+-- 8/31 작성 (방어가 없던 시점이라 user_id 를 직접 넣어야 했다)
+SELECT SUM(amount) FROM transactions WHERE user_id=1 AND category_id=1
+
+-- 9/2 정책 기준 (LLM 은 user_id 를 쓰지 않는다. 서버가 주입한다)
+SELECT SUM(amount) FROM transactions WHERE category_id=1
+```
+
+새 정책에서 **LLM 이 `user_id` 를 쓰는 것 자체가 계약 위반**이므로, 저 질의는 애초에 발생하지 않는다.
+
+`user_id` 를 빼고 다시 재자 **오탐 0/3** 이 나왔다.
+
+> **정책이 바뀌면 측정 질의도 바뀌어야 한다.**
+> 그대로 기록했으면 "우리 검증기는 정상 질의를 전부 막는다" 는 가짜 결론이 나왔을 것이다.
+
+8/31 의 "파괴형 테스트를 먼저 실행해 결과가 오염된" 사례와 같은 종류의 실수다.
+**측정 대상이 아니라 측정 도구를 의심해야 하는 경우가 두 번 나왔다.**
