@@ -1,6 +1,7 @@
 package dev.portfolio.nlquery.guard;
 
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
@@ -10,8 +11,10 @@ import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
+import org.springframework.stereotype.Component;
 
 
+@Component
 public class JsqlUserIdEnforcer implements UserIdEnforcer {
     @Override
     public String enforce(String sql, long loginUserId) {
@@ -24,6 +27,9 @@ public class JsqlUserIdEnforcer implements UserIdEnforcer {
             PlainSelect ps = (PlainSelect) stmt;
             Expression where = ps.getWhere();
 
+            if (containsUserId(where)) {
+                throw new SqlGuardException("LLM USER_ID 사용");
+            }
             Expression cond =
                     new EqualsTo(
                             new Column("user_id"),
@@ -38,5 +44,18 @@ public class JsqlUserIdEnforcer implements UserIdEnforcer {
         }
 
 
+    }
+
+    private boolean containsUserId(Expression expr) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr instanceof Column c) {
+            return "user_id".equalsIgnoreCase(c.getColumnName());
+        }
+        if (expr instanceof BinaryExpression b) {
+            return containsUserId(b.getLeftExpression()) || containsUserId(b.getRightExpression());
+        }
+        return false;
     }
 }
