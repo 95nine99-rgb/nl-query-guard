@@ -1,5 +1,6 @@
 package dev.portfolio.nlquery.guard;
 
+import dev.portfolio.nlquery.common.error.ErrorCode;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
@@ -33,7 +34,7 @@ public class JsqlUserIdEnforcer implements UserIdEnforcer {
             // 방어층 1 — SELECT 외 구문은 여기서 전부 막힌다.
             // 정규식이었다면 DROP|DELETE|UPDATE|... 를 나열해야 했고 빠뜨리면 뚫린다.
             if (!(stmt instanceof Select)) {
-                throw new SqlGuardException("SELECT 가 아니다");
+                throw new SqlGuardException(ErrorCode.NOT_SELECT);
             }
 
             PlainSelect ps = (PlainSelect) stmt;
@@ -41,7 +42,7 @@ public class JsqlUserIdEnforcer implements UserIdEnforcer {
 
             // 방어층 3 — 계약 위반 탐지
             if (containsUserId(where)) {
-                throw new SqlGuardException("LLM USER_ID 사용");
+                throw new SqlGuardException(ErrorCode.LLM_WROTE_USER_ID);
             }
 
             Expression cond = new EqualsTo(new Column(USER_ID), new LongValue(loginUserId));
@@ -51,7 +52,7 @@ public class JsqlUserIdEnforcer implements UserIdEnforcer {
 
         } catch (JSQLParserException e) {
             // fail-closed. 파싱할 수 없으면 원본을 반환하지 않는다.
-            throw new SqlGuardException("파싱할 수 없는 SQL");
+            throw new SqlGuardException(ErrorCode.UNPARSEABLE_SQL);
         }
     }
 

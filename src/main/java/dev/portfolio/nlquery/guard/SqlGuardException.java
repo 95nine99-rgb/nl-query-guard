@@ -1,7 +1,17 @@
 package dev.portfolio.nlquery.guard;
 
+import dev.portfolio.nlquery.common.error.ErrorCode;
+
+
 public class SqlGuardException  extends RuntimeException {
-    public SqlGuardException(String message) {
-        super(message);   // 부모(RuntimeException)에게 메시지 전달
+    private final ErrorCode errorCode;
+
+    public SqlGuardException(ErrorCode errorCode) {
+        super(errorCode.name());
+        this.errorCode = errorCode;
+    }
+
+    public ErrorCode getErrorCode() {
+        return errorCode;
     }
 }
